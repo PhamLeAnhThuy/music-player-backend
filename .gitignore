@@ -9,3 +9,7 @@ out/
 dist/
 .vercel/
 *.log
+.database/
+database/
+*.sql
+.sql

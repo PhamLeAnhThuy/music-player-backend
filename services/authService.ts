@@ -1,5 +1,43 @@
 import { supabaseAdmin, supabasePublic } from "@/lib/supabase";
 
+async function upsertUserProfile(user: { id: string; email?: string | null; user_metadata?: { name?: string } | null }, fallbackName?: string) {
+  const profileResult = await supabaseAdmin.from("users").upsert(
+    {
+      id: user.id,
+      email: user.email,
+      name: user.user_metadata?.name ?? fallbackName ?? null,
+      avatar_url: null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (profileResult.error) {
+    throw new Error(`Profile insert failed: ${profileResult.error.message}`);
+  }
+}
+
+async function findAuthUserByEmail(email: string) {
+  let page = 1;
+
+  while (true) {
+    const result = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+    if (result.error) {
+      throw new Error(`Failed to inspect existing users: ${result.error.message}`);
+    }
+
+    const existingUser = result.data.users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
+    if (existingUser) {
+      return existingUser;
+    }
+
+    if (result.data.users.length < 200) {
+      return null;
+    }
+
+    page += 1;
+  }
+}
+
 export async function signUp(email: string, password: string, name?: string) {
   const result = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -11,6 +49,13 @@ export async function signUp(email: string, password: string, name?: string) {
   });
 
   if (result.error) {
+    if (/already been registered|already exists/i.test(result.error.message)) {
+      const existingUser = await findAuthUserByEmail(email);
+      if (existingUser) {
+        await upsertUserProfile(existingUser, name);
+      }
+    }
+
     throw new Error(result.error.message);
   }
 
@@ -19,19 +64,17 @@ export async function signUp(email: string, password: string, name?: string) {
     throw new Error("User creation returned no user payload");
   }
 
-  const profileResult = await supabaseAdmin.from("users").upsert(
-    {
-      id: user.id,
-      email: user.email ?? email,
-      name: name ?? null,
-      avatar_url: null,
-    },
-    { onConflict: "id" },
-  );
+  try {
+    await upsertUserProfile(user, name);
+  } catch (error) {
+    const cleanupResult = await supabaseAdmin.auth.admin.deleteUser(user.id);
+    const baseMessage = error instanceof Error ? error.message : "Profile insert failed";
 
-  if (profileResult.error) {
-    await supabaseAdmin.auth.admin.deleteUser(user.id);
-    throw new Error(`Profile insert failed: ${profileResult.error.message}`);
+    if (cleanupResult.error) {
+      throw new Error(`${baseMessage}. Cleanup failed: ${cleanupResult.error.message}`);
+    }
+
+    throw new Error(baseMessage);
   }
 
   return result.data.user;
@@ -42,6 +85,10 @@ export async function login(email: string, password: string) {
 
   if (result.error) {
     throw new Error(result.error.message);
+  }
+
+  if (result.data.user) {
+    await upsertUserProfile(result.data.user);
   }
 
   return result.data;
