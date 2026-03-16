@@ -14,6 +14,26 @@ export async function signUp(email: string, password: string, name?: string) {
     throw new Error(result.error.message);
   }
 
+  const user = result.data.user;
+  if (!user) {
+    throw new Error("User creation returned no user payload");
+  }
+
+  const profileResult = await supabaseAdmin.from("users").upsert(
+    {
+      id: user.id,
+      email: user.email ?? email,
+      name: name ?? null,
+      avatar_url: null,
+    },
+    { onConflict: "id" },
+  );
+
+  if (profileResult.error) {
+    await supabaseAdmin.auth.admin.deleteUser(user.id);
+    throw new Error(`Profile insert failed: ${profileResult.error.message}`);
+  }
+
   return result.data.user;
 }
 
