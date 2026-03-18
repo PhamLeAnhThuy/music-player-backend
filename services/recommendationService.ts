@@ -1,5 +1,6 @@
 import { getRecommendations } from "@/lib/spotify";
 import { supabaseAdmin } from "@/lib/supabase";
+import { searchSongs } from "@/services/songService";
 
 export async function recommendSongs(userId: string) {
   const [historyResult, prefResult] = await Promise.all([
@@ -27,5 +28,13 @@ export async function recommendSongs(userId: string) {
     seedTracks.push("11dFghVXANMlKmJXsNCbNl");
   }
 
-  return getRecommendations(seedGenres, seedTracks, 20);
+  try {
+    return await getRecommendations(seedGenres, seedTracks, 20);
+  } catch {
+    // Fallback keeps the app usable when Spotify recommendation endpoint fails.
+    const fallback = await searchSongs("top hits", 20);
+    return {
+      tracks: fallback.tracks.items,
+    };
+  }
 }
