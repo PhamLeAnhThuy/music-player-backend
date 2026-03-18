@@ -37,6 +37,24 @@ export async function deletePlaylist(userId: string, playlistId: string) {
 }
 
 export async function addSongToPlaylist(playlistId: string, spotifyTrackId: string, position: number) {
+  const existingResult = await supabaseAdmin
+    .from("playlist_songs")
+    .select("*")
+    .eq("playlist_id", playlistId)
+    .eq("spotify_track_id", spotifyTrackId)
+    .maybeSingle();
+
+  if (existingResult.error) {
+    throw new Error(existingResult.error.message);
+  }
+
+  if (existingResult.data) {
+    return {
+      song: existingResult.data as PlaylistSong,
+      alreadyExists: true,
+    };
+  }
+
   const result = await supabaseAdmin
     .from("playlist_songs")
     .insert({ playlist_id: playlistId, spotify_track_id: spotifyTrackId, position })
@@ -47,7 +65,10 @@ export async function addSongToPlaylist(playlistId: string, spotifyTrackId: stri
     throw new Error(result.error.message);
   }
 
-  return result.data as PlaylistSong;
+  return {
+    song: result.data as PlaylistSong,
+    alreadyExists: false,
+  };
 }
 
 export async function listPlaylistSongs(playlistId: string) {

@@ -26,8 +26,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const song = await addSongToPlaylist(id, body.spotifyTrackId, body.position ?? 0);
-    return jsonOk({ song }, 201);
+    const result = await addSongToPlaylist(id, body.spotifyTrackId, body.position ?? 0);
+    return jsonOk(result, result.alreadyExists ? 200 : 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to add song";
     return jsonError(message, 500);
