@@ -50,6 +50,20 @@ export async function addSongToPlaylist(playlistId: string, spotifyTrackId: stri
   return result.data as PlaylistSong;
 }
 
+export async function listPlaylistSongs(playlistId: string) {
+  const result = await supabaseAdmin
+    .from("playlist_songs")
+    .select("*")
+    .eq("playlist_id", playlistId)
+    .order("position", { ascending: true });
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
+  return (result.data ?? []) as PlaylistSong[];
+}
+
 export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId: string) {
   const result = await supabaseAdmin
     .from("playlist_songs")

@@ -1,11 +1,22 @@
 import { jsonError, jsonOk } from "@/lib/http";
-import { addSongToPlaylist } from "@/services/playlistService";
+import { addSongToPlaylist, listPlaylistSongs } from "@/services/playlistService";
 
 type RouteParams = {
   params: Promise<{
     id: string;
   }>;
 };
+
+export async function GET(_request: Request, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+    const songs = await listPlaylistSongs(id);
+    return jsonOk({ songs });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch playlist songs";
+    return jsonError(message, 500);
+  }
+}
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
