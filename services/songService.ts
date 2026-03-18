@@ -18,6 +18,14 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function upscaleItunesArtworkUrl(url: string | undefined) {
+  if (!url) {
+    return null;
+  }
+
+  return url.replace(/\/[0-9]+x[0-9]+bb/i, "/1200x1200bb");
+}
+
 async function findItunesPreviewUrl(trackName: string, artistName: string): Promise<string | null> {
   const term = encodeURIComponent(`${trackName} ${artistName}`.trim());
   const response = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&limit=5`, {
@@ -73,9 +81,9 @@ async function searchItunesTracks(query: string, limit: number) {
         images: item.artworkUrl100
           ? [
               {
-                url: item.artworkUrl100,
-                height: 100,
-                width: 100,
+                url: upscaleItunesArtworkUrl(item.artworkUrl100) as string,
+                height: 1200,
+                width: 1200,
               },
             ]
           : [],
@@ -92,6 +100,52 @@ async function searchItunesTracks(query: string, limit: number) {
       limit,
       offset: 0,
     },
+  };
+}
+
+async function lookupItunesTrackById(trackId: string) {
+  const response = await fetch(`https://itunes.apple.com/lookup?id=${encodeURIComponent(trackId)}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`iTunes lookup failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as ItunesSearchResponse;
+  const item = (payload.results ?? []).find((result) => result.trackName && result.artistName);
+
+  if (!item || !item.trackName || !item.artistName) {
+    throw new Error("Track not found");
+  }
+
+  const imageUrl = upscaleItunesArtworkUrl(item.artworkUrl100);
+  return {
+    track: {
+      id: item.trackId ? String(item.trackId) : trackId,
+      name: item.trackName,
+      duration_ms: item.trackTimeMillis ?? 30_000,
+      preview_url: item.previewUrl ?? null,
+      artists: [{ id: "itunes", name: item.artistName }],
+      album: {
+        id: `itunes-album-${item.trackId ?? trackId}`,
+        name: item.collectionName ?? "Unknown Album",
+        images: imageUrl
+          ? [
+              {
+                url: imageUrl,
+                height: 1200,
+                width: 1200,
+              },
+            ]
+          : [],
+      },
+      external_urls: {
+        spotify: "",
+      },
+    },
+    albumTracks: { items: [] },
+    artist: null,
   };
 }
 
@@ -145,19 +199,23 @@ export async function searchSongs(query: string, limit = 20) {
 }
 
 export async function getSong(trackId: string) {
-  const track = await getTrack(trackId);
+  try {
+    const track = await getTrack(trackId);
 
-  const albumId = track.album.id;
-  const artistId = track.artists[0]?.id;
+    const albumId = track.album.id;
+    const artistId = track.artists[0]?.id;
 
-  const [albumTracks, artist] = await Promise.all([
-    albumId ? getAlbumTracks(albumId) : Promise.resolve({ items: [] }),
-    artistId ? getArtist(artistId) : Promise.resolve(null),
-  ]);
+    const [albumTracks, artist] = await Promise.all([
+      albumId ? getAlbumTracks(albumId) : Promise.resolve({ items: [] }),
+      artistId ? getArtist(artistId) : Promise.resolve(null),
+    ]);
 
-  return {
-    track,
-    albumTracks,
-    artist,
-  };
+    return {
+      track,
+      albumTracks,
+      artist,
+    };
+  } catch {
+    return lookupItunesTrackById(trackId);
+  }
 }
