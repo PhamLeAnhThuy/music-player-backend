@@ -75,3 +75,20 @@ export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId:
     throw new Error(result.error.message);
   }
 }
+
+export async function reorderPlaylistSongs(
+  playlistId: string,
+  orders: Array<{ spotifyTrackId: string; position: number }>,
+) {
+  for (const item of orders) {
+    const result = await supabaseAdmin
+      .from("playlist_songs")
+      .update({ position: item.position })
+      .eq("playlist_id", playlistId)
+      .eq("spotify_track_id", item.spotifyTrackId);
+
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+  }
+}
