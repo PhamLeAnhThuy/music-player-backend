@@ -1,6 +1,36 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { Playlist, PlaylistSong } from "@/types/domain";
 
+async function normalizePlaylistSongPositions(playlistId: string) {
+  const songsResult = await supabaseAdmin
+    .from("playlist_songs")
+    .select("spotify_track_id, position")
+    .eq("playlist_id", playlistId)
+    .order("position", { ascending: true });
+
+  if (songsResult.error) {
+    throw new Error(songsResult.error.message);
+  }
+
+  const songs = songsResult.data ?? [];
+  for (let index = 0; index < songs.length; index += 1) {
+    const song = songs[index];
+    if (song.position === index) {
+      continue;
+    }
+
+    const updateResult = await supabaseAdmin
+      .from("playlist_songs")
+      .update({ position: index })
+      .eq("playlist_id", playlistId)
+      .eq("spotify_track_id", song.spotify_track_id);
+
+    if (updateResult.error) {
+      throw new Error(updateResult.error.message);
+    }
+  }
+}
+
 export async function listPlaylists(userId: string): Promise<Playlist[]> {
   const result = await supabaseAdmin
     .from("playlists")
@@ -49,8 +79,25 @@ export async function addSongToPlaylist(playlistId: string, spotifyTrackId: stri
   }
 
   if (existingResult.data) {
+    await normalizePlaylistSongPositions(playlistId);
+
+    const normalizedExistingResult = await supabaseAdmin
+      .from("playlist_songs")
+      .select("*")
+      .eq("playlist_id", playlistId)
+      .eq("spotify_track_id", spotifyTrackId)
+      .maybeSingle();
+
+    if (normalizedExistingResult.error) {
+      throw new Error(normalizedExistingResult.error.message);
+    }
+
+    if (!normalizedExistingResult.data) {
+      throw new Error("Failed to load playlist song");
+    }
+
     return {
-      song: existingResult.data as PlaylistSong,
+      song: normalizedExistingResult.data as PlaylistSong,
       alreadyExists: true,
     };
   }
@@ -65,8 +112,25 @@ export async function addSongToPlaylist(playlistId: string, spotifyTrackId: stri
     throw new Error(result.error.message);
   }
 
+  await normalizePlaylistSongPositions(playlistId);
+
+  const normalizedSongResult = await supabaseAdmin
+    .from("playlist_songs")
+    .select("*")
+    .eq("playlist_id", playlistId)
+    .eq("spotify_track_id", spotifyTrackId)
+    .maybeSingle();
+
+  if (normalizedSongResult.error) {
+    throw new Error(normalizedSongResult.error.message);
+  }
+
+  if (!normalizedSongResult.data) {
+    throw new Error("Failed to load playlist song");
+  }
+
   return {
-    song: result.data as PlaylistSong,
+    song: normalizedSongResult.data as PlaylistSong,
     alreadyExists: false,
   };
 }
@@ -95,6 +159,8 @@ export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId:
   if (result.error) {
     throw new Error(result.error.message);
   }
+
+  await normalizePlaylistSongPositions(playlistId);
 }
 
 export async function reorderPlaylistSongs(
