@@ -1,6 +1,7 @@
 import { getAlbumTracks, getArtist, getTrack, searchTracks } from "@/lib/spotify";
 
 const MAX_PREVIEW_LOOKUPS = 8;
+const LYRICS_TIMEOUT_MS = 3500;
 
 type ItunesSearchResponse = {
   results?: Array<{
@@ -14,6 +15,17 @@ type ItunesSearchResponse = {
   }>;
 };
 
+type LyricsPayload = {
+  synced: string | null;
+  plain: string | null;
+  provider: "lrclib";
+} | null;
+
+type LrcLibResponse = {
+  syncedLyrics?: string | null;
+  plainLyrics?: string | null;
+};
+
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -24,6 +36,56 @@ function upscaleItunesArtworkUrl(url: string | undefined) {
   }
 
   return url.replace(/\/[0-9]+x[0-9]+bb/i, "/1200x1200bb");
+}
+
+async function fetchLyrics(trackName: string, artistName: string, albumName?: string, durationMs?: number): Promise<LyricsPayload> {
+  const params = new URLSearchParams();
+  params.set("track_name", trackName);
+  params.set("artist_name", artistName);
+
+  if (albumName) {
+    params.set("album_name", albumName);
+  }
+
+  if (typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0) {
+    params.set("duration", String(Math.round(durationMs / 1000)));
+  }
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), LYRICS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`https://lrclib.net/api/get?${params.toString()}`, {
+      cache: "no-store",
+      signal: abortController.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as LrcLibResponse;
+    const synced = payload.syncedLyrics?.trim() || null;
+    const plain = payload.plainLyrics?.trim() || null;
+
+    if (!synced && !plain) {
+      return null;
+    }
+
+    return {
+      synced,
+      plain,
+      provider: "lrclib",
+    };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
 }
 
 async function findItunesPreviewUrl(trackName: string, artistName: string): Promise<string | null> {
@@ -119,6 +181,13 @@ async function lookupItunesTrackById(trackId: string) {
     throw new Error("Track not found");
   }
 
+  const lyrics = await fetchLyrics(
+    item.trackName,
+    item.artistName,
+    item.collectionName,
+    item.trackTimeMillis,
+  );
+
   const imageUrl = upscaleItunesArtworkUrl(item.artworkUrl100);
   return {
     track: {
@@ -146,6 +215,7 @@ async function lookupItunesTrackById(trackId: string) {
     },
     albumTracks: { items: [] },
     artist: null,
+    lyrics,
   };
 }
 
@@ -205,15 +275,17 @@ export async function getSong(trackId: string) {
     const albumId = track.album.id;
     const artistId = track.artists[0]?.id;
 
-    const [albumTracks, artist] = await Promise.all([
+    const [albumTracks, artist, lyrics] = await Promise.all([
       albumId ? getAlbumTracks(albumId) : Promise.resolve({ items: [] }),
       artistId ? getArtist(artistId) : Promise.resolve(null),
+      fetchLyrics(track.name, track.artists[0]?.name ?? "", track.album?.name, track.duration_ms),
     ]);
 
     return {
       track,
       albumTracks,
       artist,
+      lyrics,
     };
   } catch {
     return lookupItunesTrackById(trackId);
