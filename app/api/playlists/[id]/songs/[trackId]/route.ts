@@ -1,5 +1,6 @@
-import { jsonError, jsonOk } from "@/lib/http";
-import { removeSongFromPlaylist } from "@/services/playlistService";
+import { getUserIdFromRequest, jsonError, jsonOk } from "@/lib/http";
+import { removeSongFromPlaylistForUser } from "@/services/playlistService";
+import { NextRequest } from "next/server";
 
 type RouteParams = {
   params: Promise<{
@@ -8,10 +9,15 @@ type RouteParams = {
   }>;
 };
 
-export async function DELETE(_request: Request, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const userId = getUserIdFromRequest(request);
+    if (!userId) {
+      return jsonError("x-user-id header is required", 401);
+    }
+
     const { id, trackId } = await params;
-    await removeSongFromPlaylist(id, trackId);
+    await removeSongFromPlaylistForUser(userId, id, trackId);
     return jsonOk({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to remove song";

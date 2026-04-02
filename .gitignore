@@ -13,3 +13,12 @@ dist/
 database/
 *.sql
 .sql
+
+# Local-only files and Copilot customization artifacts
+.local/
+.credentials/
+.github/skills/
+.instructions.md
+.prompt.md
+.agent.md
+copilot-instructions.md

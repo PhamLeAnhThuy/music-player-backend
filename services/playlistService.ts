@@ -1,6 +1,23 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { Playlist, PlaylistSong } from "@/types/domain";
 
+async function assertPlaylistOwnership(userId: string, playlistId: string) {
+  const playlistResult = await supabaseAdmin
+    .from("playlists")
+    .select("id")
+    .eq("id", playlistId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (playlistResult.error) {
+    throw new Error(playlistResult.error.message);
+  }
+
+  if (!playlistResult.data) {
+    throw new Error("Playlist not found");
+  }
+}
+
 async function normalizePlaylistSongPositions(playlistId: string) {
   const songsResult = await supabaseAdmin
     .from("playlist_songs")
@@ -54,6 +71,59 @@ export async function createPlaylist(userId: string, name: string, description?:
 
   if (result.error) {
     throw new Error(result.error.message);
+  }
+
+  return result.data as Playlist;
+}
+
+export async function getPlaylistById(userId: string, playlistId: string): Promise<Playlist | null> {
+  const result = await supabaseAdmin
+    .from("playlists")
+    .select("*")
+    .eq("id", playlistId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
+  return (result.data as Playlist | null) ?? null;
+}
+
+export async function updatePlaylist(
+  userId: string,
+  playlistId: string,
+  changes: { name?: string; description?: string | null; cover_url?: string | null },
+) {
+  const payload: { name?: string; description?: string | null; cover_url?: string | null } = {};
+
+  if (typeof changes.name === "string") {
+    payload.name = changes.name.trim();
+  }
+
+  if ("description" in changes) {
+    payload.description = changes.description ?? null;
+  }
+
+  if ("cover_url" in changes) {
+    payload.cover_url = changes.cover_url ?? null;
+  }
+
+  const result = await supabaseAdmin
+    .from("playlists")
+    .update(payload)
+    .eq("id", playlistId)
+    .eq("user_id", userId)
+    .select("*")
+    .maybeSingle();
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
+  if (!result.data) {
+    throw new Error("Playlist not found");
   }
 
   return result.data as Playlist;
@@ -135,6 +205,11 @@ export async function addSongToPlaylist(playlistId: string, spotifyTrackId: stri
   };
 }
 
+export async function addSongToPlaylistForUser(userId: string, playlistId: string, spotifyTrackId: string, position: number) {
+  await assertPlaylistOwnership(userId, playlistId);
+  return addSongToPlaylist(playlistId, spotifyTrackId, position);
+}
+
 export async function listPlaylistSongs(playlistId: string) {
   const result = await supabaseAdmin
     .from("playlist_songs")
@@ -149,6 +224,11 @@ export async function listPlaylistSongs(playlistId: string) {
   return (result.data ?? []) as PlaylistSong[];
 }
 
+export async function listPlaylistSongsForUser(userId: string, playlistId: string) {
+  await assertPlaylistOwnership(userId, playlistId);
+  return listPlaylistSongs(playlistId);
+}
+
 export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId: string) {
   const result = await supabaseAdmin
     .from("playlist_songs")
@@ -161,6 +241,11 @@ export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId:
   }
 
   await normalizePlaylistSongPositions(playlistId);
+}
+
+export async function removeSongFromPlaylistForUser(userId: string, playlistId: string, spotifyTrackId: string) {
+  await assertPlaylistOwnership(userId, playlistId);
+  await removeSongFromPlaylist(playlistId, spotifyTrackId);
 }
 
 export async function reorderPlaylistSongs(
@@ -178,4 +263,15 @@ export async function reorderPlaylistSongs(
       throw new Error(result.error.message);
     }
   }
+
+  await normalizePlaylistSongPositions(playlistId);
+}
+
+export async function reorderPlaylistSongsForUser(
+  userId: string,
+  playlistId: string,
+  orders: Array<{ spotifyTrackId: string; position: number }>,
+) {
+  await assertPlaylistOwnership(userId, playlistId);
+  await reorderPlaylistSongs(playlistId, orders);
 }
