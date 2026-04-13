@@ -130,6 +130,15 @@ export async function updatePlaylist(
 }
 
 export async function deletePlaylist(userId: string, playlistId: string) {
+  const deleteSongsResult = await supabaseAdmin
+    .from("playlist_songs")
+    .delete()
+    .eq("playlist_id", playlistId);
+
+  if (deleteSongsResult.error) {
+    throw new Error(deleteSongsResult.error.message);
+  }
+
   const result = await supabaseAdmin.from("playlists").delete().eq("id", playlistId).eq("user_id", userId);
   if (result.error) {
     throw new Error(result.error.message);
