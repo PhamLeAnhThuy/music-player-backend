@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ReactNode } from "react";
+import "swagger-ui-dist/swagger-ui.css";
 
 export const metadata: Metadata = {
   title: "Music Player Backend",
